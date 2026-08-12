@@ -47,19 +47,21 @@
 * This optimizes the operation to exactly 2 database queries: one for all LSAs, and one for all related skills across those LSAs.
 
 ---
-## Slide 8: Booking API Flow
+## Slide 8: Booking API Flow (Payment Initiation)
 * **Endpoint**: `POST /api/v1/bookings/`
 * Receives parent ID, LSA ID, start time, and end time.
 * Step 1: Validate payload format (e.g., start_time < end_time).
 * Step 2: Open Atomic DB Transaction.
 * Step 3: Lock LSA row & check for overlaps to prevent double-booking.
-* Step 4: Save Pending Booking.
-* Step 5: Close Transaction (Release locks) -> Call External API.
+* Step 4: Save PENDING Booking & Payment.
+* Step 5: Close Transaction (Release locks).
+* Step 6: Call External API and store the returned `transaction_id`.
 
 ---
-## Slide 9: Concurrency and Double-Booking Prevention
+## Slide 9: Concurrency and SQLite vs PostgreSQL
 * Implemented `select_for_update()` inside `transaction.atomic()`.
-* This grabs a database-level write lock on the specific LSA row being booked.
+* **Important Disclaimer**: SQLite does not support true row-level locking. It is used here purely to keep the take-home prototype setup lightweight.
+* In a production environment using **PostgreSQL**, this statement grabs a database-level write lock on the specific LSA row.
 * Concurrent requests attempting to book the same LSA will queue sequentially, perfectly avoiding race conditions.
 
 ---

@@ -2,12 +2,14 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from .models import LSA_Profile, Booking_Request, Payment
-from .serializers import LSASerializer, BookingRequestSerializer
+from .serializers import LSASerializer, BookingRequestSerializer, LSASearchQuerySerializer
 from .services import process_payment_with_external_service
 from django.db import transaction
 from django.db.models import QuerySet
 from rest_framework.request import Request
 from typing import Any
+from decimal import Decimal
+import os
 import logging
 
 logger = logging.getLogger(__name__)
@@ -19,9 +21,13 @@ class LSASearchView(APIView):
     """
     
     def get(self, request: Request) -> Response:
-        skill: str | None = request.query_params.get('skill', None)
-        start_time: str | None = request.query_params.get('start_time', None)
-        end_time: str | None = request.query_params.get('end_time', None)
+        query_serializer = LSASearchQuerySerializer(data=request.query_params)
+        if not query_serializer.is_valid():
+            return Response(query_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+        skill = query_serializer.validated_data.get('skill')
+        start_time = query_serializer.validated_data.get('start_time')
+        end_time = query_serializer.validated_data.get('end_time')
         
         # Using prefetch_related to avoid N+1 query problem
         lsas: QuerySet[LSA_Profile] = LSA_Profile.objects.all().prefetch_related('skills')
@@ -78,7 +84,7 @@ class BookingView(APIView):
                 booking: Booking_Request = serializer.save(status='PENDING')
                 
                 # Create a pending payment
-                payment: Payment = Payment.objects.create(booking=booking, amount=100.00)
+                payment: Payment = Payment.objects.create(booking=booking, amount=Decimal("100.00"))
             
             # The atomic block is closed here. The DB lock is released.
             # Now we call the mock external service outside the transaction to avoid holding DB locks during network IO.
@@ -98,6 +104,11 @@ class BookingView(APIView):
                     "error": "External verification/payment failed.",
                     "details": ext_response.get('error')
                 }, status=status.HTTP_502_BAD_GATEWAY)
+            else:
+                # Store the transaction_id but leave status as PENDING until webhook confirms it
+                payment = Payment.objects.get(id=payment.id)
+                payment.transaction_id = ext_response.get('transaction_id')
+                payment.save(update_fields=['transaction_id'])
                 
             return Response(BookingRequestSerializer(booking).data, status=status.HTTP_201_CREATED)
         
@@ -114,7 +125,8 @@ class PaymentWebhookView(APIView):
         # 1. Mock Authentication / Signature Verification
         # In production, this would verify a cryptographic signature (e.g., HMAC-SHA256)
         signature = request.headers.get('X-Webhook-Signature')
-        if signature != 'mock-secret-signature':
+        expected_secret = os.environ.get('WEBHOOK_SECRET')
+        if not expected_secret or signature != expected_secret:
             return Response({"error": "Unauthorized or invalid signature"}, status=status.HTTP_401_UNAUTHORIZED)
             
         # 2. Payload Validation

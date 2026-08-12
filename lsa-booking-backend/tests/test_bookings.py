@@ -226,3 +226,57 @@ class TestLSASearchAPI:
         response = api_client.get(reverse('lsa-search') + '?skill=NonExistentSkill')
         assert response.status_code == 200
         assert len(response.data) == 0
+
+    def test_lsa_search_availability(self, api_client, sample_data):
+        # LSA is already booked 10:00 - 12:00 tomorrow
+        start_time = timezone.now() + timedelta(days=1)
+        end_time = start_time + timedelta(hours=2)
+        
+        Booking_Request.objects.create(
+            parent=sample_data['parent'],
+            lsa=sample_data['lsa'],
+            start_time=start_time,
+            end_time=end_time,
+            status='CONFIRMED'
+        )
+        
+        # Search 1: 10:30 - 11:30 (overlapping) -> should NOT return Jane Smith
+        search_start = start_time + timedelta(minutes=30)
+        search_end = start_time + timedelta(minutes=90)
+        response = api_client.get(reverse('lsa-search'), data={
+            'skill': 'Python',
+            'start_time': search_start.isoformat(),
+            'end_time': search_end.isoformat()
+        })
+        assert response.status_code == 200
+        assert len(response.data) == 0
+
+        # Search 2: 12:00 - 13:00 (non-overlapping) -> should return Jane Smith
+        search_start_2 = end_time
+        search_end_2 = end_time + timedelta(hours=1)
+        response2 = api_client.get(reverse('lsa-search'), data={
+            'skill': 'Python',
+            'start_time': search_start_2.isoformat(),
+            'end_time': search_end_2.isoformat()
+        })
+        assert response2.status_code == 200
+        assert len(response2.data) == 1
+        assert response2.data[0]['name'] == 'Jane Smith'
+
+    def test_lsa_search_validation_errors(self, api_client):
+        # 1. start_time without end_time
+        response = api_client.get(reverse('lsa-search'), data={"start_time": "2026-08-13T10:00:00Z"})
+        assert response.status_code == 400
+        assert "must be provided together" in str(response.data)
+
+        # 2. invalid datetime format
+        response2 = api_client.get(reverse('lsa-search'), data={"start_time": "hello", "end_time": "world"})
+        assert response2.status_code == 400
+        assert "datetime" in str(response2.data).lower()
+
+        # 3. start_time after end_time
+        start = "2026-08-13T12:00:00Z"
+        end = "2026-08-13T10:00:00Z"
+        response3 = api_client.get(reverse('lsa-search'), data={"start_time": start, "end_time": end})
+        assert response3.status_code == 400
+        assert "before end_time" in str(response3.data)

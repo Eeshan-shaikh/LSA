@@ -21,7 +21,7 @@ def process_payment_with_external_service(booking_id: int, amount: Decimal) -> d
         # Mocking an external call to httpbin to simulate an external API request
         response = requests.post(
             'https://httpbin.org/post', 
-            json={'booking_id': booking_id, 'amount': float(amount)},
+            json={'booking_id': booking_id, 'amount': str(amount)},
             timeout=5
         )
         response.raise_for_status()

@@ -124,7 +124,13 @@ SQLite was selected for this take-home prototype to keep local setup lightweight
 However, **PostgreSQL is strongly preferred for production.** PostgreSQL offers superior database-level concurrency control (which empowers things like `select_for_update()`), better constraints handling, and scaling capabilities that SQLite lacks in high-throughput environments.
 
 ### Transaction Management and Network I/O
-Database locks should never be held while waiting for network operations. In the `BookingView`, we execute a strict `transaction.atomic()` block to lock the LSA row, validate overlaps, and create the booking. **We close this transaction before calling the external mocked payment API.** If the API fails, we open a *new* atomic transaction to update the status to `CANCELLED`.
+Database locks should never be held while waiting for network operations. In the `BookingView`, we execute a strict `transaction.atomic()` block to lock the LSA row, validate overlaps, and create the booking. **We close this transaction before calling the external mocked payment API.** 
+
+**Payment Architecture Flow:**
+1. **Initiation**: The booking and payment are created in a `PENDING` state.
+2. **External Call**: A mocked `requests.post()` simulates initiating the payment, returning a `transaction_id`.
+3. **Storage**: The `transaction_id` is stored on the `Payment` record, but the status remains `PENDING`.
+4. **Async Confirmation**: An external service later hits the `POST /api/v1/payments/webhook/` endpoint. Only upon receiving a valid webhook signature does the system move the booking to `CONFIRMED`.
 
 ## Running Tests
 Run the comprehensive test suite (13 tests) using `pytest`:

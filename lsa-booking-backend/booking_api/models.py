@@ -34,6 +34,17 @@ class Booking_Request(models.Model):
     end_time = models.DateTimeField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['lsa', 'status', 'start_time', 'end_time']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(start_time__lt=models.F('end_time')),
+                name='check_start_time_before_end_time'
+            )
+        ]
+
     def __str__(self):
         return f"{self.parent.name} booked {self.lsa.name} from {self.start_time} to {self.end_time}"
 
