@@ -35,12 +35,15 @@ class Booking_Request(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
 
     class Meta:
+        # This composite index optimizes the LSA availability check query which filters on:
+        # lsa, status IN (PENDING, CONFIRMED), start_time < requested_end, and end_time > requested_start
+        # By placing all 4 fields in one index, the DB can quickly isolate overlapping bookings.
         indexes = [
             models.Index(fields=['lsa', 'status', 'start_time', 'end_time']),
         ]
         constraints = [
             models.CheckConstraint(
-                check=models.Q(start_time__lt=models.F('end_time')),
+                condition=models.Q(start_time__lt=models.F('end_time')),
                 name='check_start_time_before_end_time'
             )
         ]

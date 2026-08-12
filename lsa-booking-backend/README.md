@@ -32,10 +32,23 @@ pip install -r requirements.txt
 ```
 
 ### 4. Setup Environment Variables:
-Copy `.env.example` to `.env` and fill in the required variables (specifically `DJANGO_SECRET_KEY`).
-```bash
-cp .env.example .env
+The application strictly relies on environment variables for security. You must export them in your terminal before running the server or tests.
+
+**Windows PowerShell:**
+```powershell
+$env:DJANGO_SECRET_KEY="your-secret-key-here"
+$env:WEBHOOK_SECRET="mock-secret-signature"
+$env:DEBUG="True"
 ```
+
+**Mac/Linux Bash:**
+```bash
+export DJANGO_SECRET_KEY="your-secret-key-here"
+export WEBHOOK_SECRET="mock-secret-signature"
+export DEBUG="True"
+```
+
+*(Note: There is a `.env.example` provided as a reference for the required keys, but the project relies on real exported environment variables rather than loading a `.env` file to avoid unnecessary dependencies).*
 
 ### 5. Apply Database Migrations:
 ```bash
@@ -52,11 +65,12 @@ python manage.py runserver
 
 ### 1. Search LSAs
 **Endpoint:** `GET /api/v1/lsas/search/`  
-**Purpose:** Finds LSAs that possess a given skill and are available during the specified timeframe.  
+**Purpose:** Finds LSAs that possess a given skill and are available during the specified timeframe. Availability is based on excluding LSAs that have overlapping `PENDING` or `CONFIRMED` bookings.  
 **Parameters:**
 - `skill` (string) - Example: `Python`
 - `start_time` (string, optional) - ISO 8601 format
 - `end_time` (string, optional) - ISO 8601 format
+*(Note: If providing a time window, both `start_time` and `end_time` must be provided together).*
 
 **Example Request:**
 ```http
@@ -95,7 +109,7 @@ GET /api/v1/lsas/search/?skill=Python&start_time=2024-05-15T10:00:00Z&end_time=2
 
 ### 3. Payment Webhook
 **Endpoint:** `POST /api/v1/payments/webhook/`  
-**Purpose:** Asynchronously updates payment state. Requires `X-Webhook-Signature` header.  
+**Purpose:** Asynchronously updates payment state. Requires `X-Webhook-Signature` header matching the `WEBHOOK_SECRET` environment variable.  
 
 **Example Request:**
 ```json
