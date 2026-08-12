@@ -29,16 +29,5 @@ class BookingRequestSerializer(serializers.ModelSerializer):
 
         if start_time >= end_time:
             raise serializers.ValidationError({"error": "start_time must be before end_time"})
-
-        # Check for double-booking / overlapping bookings
-        overlapping_bookings = Booking_Request.objects.filter(
-            lsa=lsa,
-            status__in=['PENDING', 'CONFIRMED'],
-            start_time__lt=end_time,
-            end_time__gt=start_time
-        )
-        
-        if overlapping_bookings.exists():
-            raise serializers.ValidationError({"error": "LSA is already booked for this time slot."})
             
         return data

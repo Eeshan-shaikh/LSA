@@ -10,12 +10,12 @@
 ## Slide 2: The Problem
 * Need a robust backend to book Learning Support Assistants (LSAs).
 * Core requirements: Database models, API for searching, API for booking.
-* Key challenges: Preventing double-bookings, preventing N+1 query inefficiencies, and mock external service integration.
+* Key challenges: Preventing double-bookings safely, eliminating N+1 queries, and integrating external services.
 
 ---
 ## Slide 3: Technology Stack & Architecture
 * **Framework**: Django & Django REST Framework (DRF)
-* **Database**: SQLite (via Django ORM)
+* **Database**: SQLite (Prototype) -> PostgreSQL (Production Target)
 * **Testing**: pytest & pytest-django
 * **External Integration**: Python `requests` library
 
@@ -37,12 +37,12 @@
 ---
 ## Slide 6: LSA Search API Design
 * **Endpoint**: `GET /api/v1/lsas/search/`
-* **Functionality**: Filter LSAs by skill using query parameters (e.g., `?skill=Math`).
-* Returns nested JSON containing LSA details and their associated skills.
+* **Functionality**: Filter LSAs by skill AND availability (using `start_time` and `end_time`).
+* Returns nested JSON containing available LSA details and their associated skills.
 
 ---
 ## Slide 7: Solving the N+1 Query Problem
-* **The Problem**: Querying `N` LSAs and accessing their skills typically triggers `N+1` database queries, causing severe performance issues at scale.
+* **The Problem**: Querying `N` LSAs and accessing their skills typically triggers `N+1` database queries, causing severe performance issues.
 * **The Solution**: Used Django's `prefetch_related('skills')`.
 * This optimizes the operation to exactly 2 database queries: one for all LSAs, and one for all related skills across those LSAs.
 
@@ -50,52 +50,55 @@
 ## Slide 8: Booking API Flow
 * **Endpoint**: `POST /api/v1/bookings/`
 * Receives parent ID, LSA ID, start time, and end time.
-* Step 1: Validate payload format.
-* Step 2: Validate temporal logic (start_time < end_time).
-* Step 3: Check for overlaps to prevent double-booking.
+* Step 1: Validate payload format (e.g., start_time < end_time).
+* Step 2: Open Atomic DB Transaction.
+* Step 3: Lock LSA row & check for overlaps to prevent double-booking.
+* Step 4: Save Pending Booking.
+* Step 5: Close Transaction (Release locks) -> Call External API.
 
 ---
-## Slide 9: Double-Booking Prevention Logic
-* Query the database for existing bookings for the requested LSA.
-* Check if any existing booking overlaps with the requested time window:
-  `start_time < requested_end_time` AND `end_time > requested_start_time`
-* Returns HTTP 400 Bad Request if an overlap is found.
+## Slide 9: Concurrency and Double-Booking Prevention
+* Implemented `select_for_update()` inside `transaction.atomic()`.
+* This grabs a database-level write lock on the specific LSA row being booked.
+* Concurrent requests attempting to book the same LSA will queue sequentially, perfectly avoiding race conditions.
 
 ---
-## Slide 10: External Service Integration
-* Simulates payment/verification via the `requests` library.
-* Code implements a simulated POST request to `httpbin.org`.
-* **Exception Handling**: Uses `try/except requests.exceptions.RequestException` to catch timeouts or connection errors and gracefully fail the booking.
+## Slide 10: External Service Integration (Network I/O)
+* Simulates payment/verification via the `requests` library to `httpbin.org`.
+* **Crucial Design Choice**: The external HTTP call is executed *outside* the initial database transaction. 
+* This ensures the database doesn't hang holding locks if the network call times out (e.g., waiting 10 seconds).
 
 ---
-## Slide 11: Asynchronous Webhook
+## Slide 11: Asynchronous Webhook Hardening
 * **Endpoint**: `POST /api/v1/payments/webhook/`
 * Allows the mocked external service to asynchronously notify the system of payment success/failure.
-* Automatically updates both the Payment status and the Booking status.
+* **Security**: Enforces mock header signature verification (`X-Webhook-Signature`).
+* **Resilience**: Implements payload validation and idempotency (safely ignores duplicate success calls).
 
 ---
 ## Slide 12: Automated Testing Strategy
-* Used `pytest` with `pytest-django`.
-* Replaced standard DB with in-memory test DB.
-* Used `unittest.mock.patch` to mock external API calls during testing.
+* Comprehensive suite written with `pytest` and `pytest-django`.
+* Uses `unittest.mock.patch` to isolate external API calls.
+* Focuses on boundary conditions, missing fields, and failure states, not just the happy path.
 
 ---
-## Slide 13: Test Coverage
-* ✅ **Valid Booking**: Ensures 201 Created and correct state.
-* ❌ **Invalid Booking**: Rejects end_time before start_time.
-* ❌ **Overlapping Booking**: Successfully catches double-booking attempts.
-* ✅ **LSA Search**: Verifies query counts (N+1 fixed) using `django_assert_num_queries`.
+## Slide 13: Test Coverage Breakdown (13 Tests)
+* ✅ **Validations**: Missing fields, bad IDs, end_time < start_time.
+* ❌ **Overlap**: Catching double-booking attempts.
+* ✅ **Search**: Query count verifications (N+1 fixed) & empty results logic.
 * ❌ **External Failure**: Tests simulated network timeouts resulting in HTTP 502.
+* 🛡️ **Webhook**: Success, Failure, Invalid payloads, Bad signatures, and Idempotency logic.
 
 ---
 ## Slide 14: Continuous Integration (CI/CD)
-* Configured GitHub Actions.
-* `.github/workflows/tests.yml` triggers on every push/pull_request to main.
-* Automatically sets up Python, installs dependencies, and runs the `pytest` suite to ensure code quality.
+* Configured GitHub Actions (`.github/workflows/tests.yml`).
+* Automatically runs `pip install -r requirements.txt`.
+* Triggers on every push to `main`.
+* Ensures tests pass before code can be considered integrated.
 
 ---
-## Slide 15: Conclusion & Demo
-* System fulfills all assignment requirements securely and efficiently.
-* Code is modular, well-tested, and ready for deployment.
+## Slide 15: Conclusion & Status
+* **Status**: The prototype implements the requested booking, LSA search, payment, webhook, testing and CI workflows.
+* **Production Hardening**: Identified and addressed areas around concurrency (DB locks), webhook security (signatures/idempotency), and deployment configuration (environment variables).
 * [Live Demo / Q&A]
 ---
